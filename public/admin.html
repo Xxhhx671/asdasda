@@ -68,35 +68,75 @@
 <script>
 const $ = id => document.getElementById(id);
 function fmt(ts){ if(!ts) return 'lifetime'; return new Date(ts).toLocaleString(); }
+function show(obj){ $('out').textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2); }
+
 async function api(path, body){
   const pw = $('pw').value;
-  const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json','x-admin-password':pw}, body: JSON.stringify(body||{})});
-  return r.json();
+  let r, text;
+  try {
+    r = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': pw },
+      body: JSON.stringify(body || {})
+    });
+    text = await r.text();
+  } catch (e) {
+    throw new Error('Network error: ' + e.message);
+  }
+  let data;
+  try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { ok:false, error:'bad_response', status:r.status, raw:text }; }
+  if (!r.ok && data && data.ok === undefined) data.ok = false;
+  data._status = r.status;
+  return data;
 }
+
 $('gen').onclick = async () => {
-  const res = await api('/api/admin/generate', {count: $('count').value, days: $('days').value, note: $('note').value});
-  $('out').textContent = JSON.stringify(res, null, 2);
-  if(res.ok) load();
+  show('Generating...');
+  try {
+    const res = await api('/api/admin/generate', { count: $('count').value, days: $('days').value, note: $('note').value });
+    show(res);
+    if (res.ok) await load();
+  } catch (e) {
+    show(String(e.message || e));
+  }
 };
-$('refresh').onclick = load;
+
+$('refresh').onclick = () => load(true);
+
 $('revoke').onclick = async () => {
-  const res = await api('/api/admin/revoke', {key: $('revokeKey').value});
-  $('out').textContent = JSON.stringify(res, null, 2);
-  if(res.ok) load();
+  show('Revoking...');
+  try {
+    const res = await api('/api/admin/revoke', { key: $('revokeKey').value });
+    show(res);
+    if (res.ok) await load();
+  } catch (e) {
+    show(String(e.message || e));
+  }
 };
-async function load(){
+
+async function load(showStatus){
   const pw = $('pw').value;
-  const r = await fetch('/api/admin/list', {headers:{'x-admin-password':pw}});
-  const res = await r.json();
-  if(!res.ok){ $('out').textContent = JSON.stringify(res,null,2); return; }
-  const tb = $('tbl').querySelector('tbody'); tb.innerHTML='';
-  (res.keys||[]).slice().reverse().forEach(k => {
+  if (showStatus) show('Loading...');
+  let r, text;
+  try {
+    r = await fetch('/api/admin/list', { headers: { 'x-admin-password': pw } });
+    text = await r.text();
+  } catch (e) {
+    show('Network error: ' + e.message);
+    return;
+  }
+  let res;
+  try { res = text ? JSON.parse(text) : {}; } catch (_) { res = { ok:false, error:'bad_response', raw:text }; }
+  if (!res.ok) { show(res); return; }
+  const tb = $('tbl').querySelector('tbody'); tb.innerHTML = '';
+  (res.keys || []).slice().reverse().forEach(k => {
     const tr = document.createElement('tr');
     const expired = k.expiresAt && Date.now() > k.expiresAt;
     const status = k.revoked ? '<span class="bad">revoked</span>' : expired ? '<span class="bad">expired</span>' : '<span class="ok">active</span>';
     tr.innerHTML = `<td><code>${k.key}</code></td><td>${status}</td><td>${k.hwid?('<code>'+k.hwid+'</code>'):'—'}</td><td>${fmt(k.expiresAt)}</td><td>${k.note||''}</td>`;
     tb.appendChild(tr);
   });
+  if (showStatus) show({ ok:true, count: (res.keys||[]).length });
 }
 </script>
 </body>

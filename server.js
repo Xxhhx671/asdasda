@@ -28,6 +28,10 @@ function loadDB() {
 }
 
 function saveDB(db) {
+  const dir = path.dirname(DATA_FILE);
+  if (dir && dir !== '.' && !fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
   fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2), 'utf8');
 }
 
@@ -78,41 +82,56 @@ app.all('/api/validate', (req, res) => {
 
 // --- Admin endpoints ---
 app.post('/api/admin/generate', auth, (req, res) => {
-  const count = Math.max(1, Math.min(100, parseInt(req.body.count || 1, 10)));
-  const days = parseInt(req.body.days || 0, 10); // 0 = lifetime
-  const note = String(req.body.note || '');
-  const db = loadDB();
-  const created = [];
-  for (let i = 0; i < count; i++) {
-    const key = normGenKey();
-    const entry = {
-      key,
-      createdAt: now(),
-      expiresAt: days > 0 ? now() + days * 24 * 60 * 60 * 1000 : null,
-      hwid: null,
-      revoked: false,
-      note
-    };
-    db.keys.push(entry);
-    created.push(entry);
+  try {
+    const count = Math.max(1, Math.min(100, parseInt(req.body.count || 1, 10)));
+    const days = parseInt(req.body.days || 0, 10); // 0 = lifetime
+    const note = String(req.body.note || '');
+    const db = loadDB();
+    const created = [];
+    for (let i = 0; i < count; i++) {
+      const key = normGenKey();
+      const entry = {
+        key,
+        createdAt: now(),
+        expiresAt: days > 0 ? now() + days * 24 * 60 * 60 * 1000 : null,
+        hwid: null,
+        revoked: false,
+        note
+      };
+      db.keys.push(entry);
+      created.push(entry);
+    }
+    saveDB(db);
+    res.json({ ok: true, keys: created });
+  } catch (e) {
+    console.error('generate error', e);
+    res.status(500).json({ ok: false, error: 'server_error', message: String(e.message || e) });
   }
-  saveDB(db);
-  res.json({ ok: true, keys: created });
 });
 
 app.get('/api/admin/list', auth, (req, res) => {
-  const db = loadDB();
-  res.json({ ok: true, keys: db.keys });
+  try {
+    const db = loadDB();
+    res.json({ ok: true, keys: db.keys });
+  } catch (e) {
+    console.error('list error', e);
+    res.status(500).json({ ok: false, error: 'server_error', message: String(e.message || e) });
+  }
 });
 
 app.post('/api/admin/revoke', auth, (req, res) => {
-  const key = String(req.body.key || '').trim().toUpperCase();
-  const db = loadDB();
-  const entry = db.keys.find(k => k.key === key);
-  if (!entry) return res.json({ ok: false, error: 'not_found' });
-  entry.revoked = true;
-  saveDB(db);
-  res.json({ ok: true });
+  try {
+    const key = String(req.body.key || '').trim().toUpperCase();
+    const db = loadDB();
+    const entry = db.keys.find(k => k.key === key);
+    if (!entry) return res.json({ ok: false, error: 'not_found' });
+    entry.revoked = true;
+    saveDB(db);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('revoke error', e);
+    res.status(500).json({ ok: false, error: 'server_error', message: String(e.message || e) });
+  }
 });
 
 app.get('/', (_req, res) => {
