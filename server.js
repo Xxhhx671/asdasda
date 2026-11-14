@@ -11,6 +11,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'keys.json');
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'change-me';
 const PORT = process.env.PORT || 3000;
+const KEEPALIVE_URL = process.env.KEEPALIVE_URL || '';
+const KEEPALIVE_INTERVAL_MIN = Math.max(1, parseInt(process.env.KEEPALIVE_INTERVAL_MIN || '5', 10));
 
 function loadDB() {
   try {
@@ -122,4 +124,24 @@ app.get('/health', (_req, res) => res.send('ok'));
 app.listen(PORT, () => {
   console.log(`Key server listening on ${PORT}`);
   console.log(`Admin password env ADMIN_PASSWORD is ${ADMIN_PASSWORD === 'change-me' ? 'DEFAULT (change it!)' : 'set'}`);
+
+  // Optional self keep-alive ping (helps prevent sleep while service is awake).
+  // For reliable wake-ups on Render Free, also use an external monitor (e.g. UptimeRobot) to ping /health.
+  if (KEEPALIVE_URL) {
+    const ms = KEEPALIVE_INTERVAL_MIN * 60 * 1000;
+    const ping = async () => {
+      try {
+        const r = await fetch(KEEPALIVE_URL, { method: 'GET' });
+        console.log(`[keepalive] ${new Date().toISOString()} -> ${r.status}`);
+      } catch (e) {
+        console.log(`[keepalive] ${new Date().toISOString()} error: ${e.message}`);
+      }
+    };
+    setInterval(ping, ms);
+    // initial delayed ping
+    setTimeout(ping, 30 * 1000);
+    console.log(`[keepalive] enabled: ${KEEPALIVE_URL} every ${KEEPALIVE_INTERVAL_MIN} min`);
+  } else {
+    console.log('[keepalive] disabled (set KEEPALIVE_URL to enable self-ping)');
+  }
 });
